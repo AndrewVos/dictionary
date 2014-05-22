@@ -45,7 +45,7 @@ func main() {
 				panic(err)
 			}
 			fmt.Println(string(wordData))
-			os.Exit(1)
+			os.Exit(0)
 		}
 	}
 }
