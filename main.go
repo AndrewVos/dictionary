@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	dictionary := "dictd_www.dict.org_web1913.dict.cz"
+	dictionary := "dictd_www.dict.org_web1913.dict.dz"
 	index := "dictd_www.dict.org_web1913.idx"
 
 	indexContent, err := read(index, 0, 0)
@@ -99,7 +99,7 @@ func exists(path string) (bool, error) {
 }
 
 func read(path string, offset int, size int) ([]byte, error) {
-	if strings.HasSuffix(path, ".cz") {
+	if strings.HasSuffix(path, ".dz") || strings.HasSuffix(path, ".gz") {
 		exists, _ := exists(path + ".decompressed")
 		if exists == false {
 			err := decompress(path, path+".decompressed")
