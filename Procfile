@@ -1,0 +1,1 @@
+web: dictionary --serve
