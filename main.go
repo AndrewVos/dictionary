@@ -7,17 +7,55 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
+	"net/http"
 	"os"
 	"strings"
 )
 
-func main() {
-	dictionary := "dictd_www.dict.org_web1913.dict.dz"
-	index := "dictd_www.dict.org_web1913.idx"
+type Word struct {
+	Word           string
+	wordDataIndex  int64
+	wordDataLength int64
+}
 
-	indexContent, err := read(index, 0, 0)
+type Dictionary struct {
+	dictionaryPath string
+	words          []Word
+}
+
+func (d *Dictionary) FindWord(word string) (string, error) {
+	word = strings.ToLower(word)
+	var result []string
+	reader, err := reader(d.dictionaryPath)
 	if err != nil {
-		panic(err)
+		return "", err
+	}
+	defer reader.Close()
+
+	for _, indexedWord := range d.words {
+		if strings.ToLower(indexedWord.Word) == word {
+			reader.Seek(indexedWord.wordDataIndex, 0)
+			b := make([]byte, indexedWord.wordDataLength)
+			_, err := reader.Read(b)
+			if err != nil {
+				return "", err
+			}
+			result = append(result, string(b))
+		}
+	}
+	return strings.Join(result, "\n"), nil
+}
+
+func NewDictionary(indexPath string, dictionaryPath string) (*Dictionary, error) {
+	dictionary := &Dictionary{
+		words:          []Word{},
+		dictionaryPath: dictionaryPath,
+	}
+
+	indexContent, err := read(indexPath)
+	if err != nil {
+		return nil, err
 	}
 
 	i := 0
@@ -39,14 +77,63 @@ func main() {
 		size := readInt32(indexContent[i : i+4])
 		i += 4
 
-		if currentWord == os.Args[1] {
-			wordData, err := read(dictionary, offset, size)
-			if err != nil {
-				panic(err)
-			}
-			fmt.Println(string(wordData))
-			os.Exit(0)
+		word := Word{
+			Word:           currentWord,
+			wordDataIndex:  int64(offset),
+			wordDataLength: int64(size),
 		}
+		dictionary.words = append(dictionary.words, word)
+
+		if i == len(indexContent) {
+			break
+		}
+	}
+	return dictionary, nil
+}
+
+func main() {
+	dictionary, err := NewDictionary("dictd_www.dict.org_web1913.idx", "dictd_www.dict.org_web1913.dict.dz")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if os.Args[1] == "--serve" {
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			content, err := ioutil.ReadFile("index.html")
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
+			template := string(content)
+
+			word := r.URL.Query().Get("word")
+			result, err := dictionary.FindWord(word)
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
+
+			if result == "" {
+				template = strings.Replace(template, "{RESULT}", "Not Found", -1)
+
+			} else {
+				result = strings.Replace(result, "\n", "<br>", -1)
+				template = strings.Replace(template, "{RESULT}", result, -1)
+			}
+
+			w.Write([]byte(template))
+		})
+
+		port := "8080"
+		if p := os.Getenv("PORT"); p != "" {
+			port = p
+		}
+
+		err := http.ListenAndServe(":"+port, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		fmt.Println(dictionary.FindWord(os.Args[1]))
 	}
 }
 
@@ -98,7 +185,7 @@ func exists(path string) (bool, error) {
 	return false, err
 }
 
-func read(path string, offset int, size int) ([]byte, error) {
+func read(path string) ([]byte, error) {
 	if strings.HasSuffix(path, ".dz") || strings.HasSuffix(path, ".gz") {
 		exists, _ := exists(path + ".decompressed")
 		if exists == false {
@@ -116,25 +203,28 @@ func read(path string, offset int, size int) ([]byte, error) {
 	}
 	defer file.Close()
 
-	if offset > 0 {
-		_, err = file.Seek(int64(offset), 0)
-		if err != nil {
-			return nil, err
+	b, err := ioutil.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func reader(path string) (*os.File, error) {
+	if strings.HasSuffix(path, ".dz") || strings.HasSuffix(path, ".gz") {
+		exists, _ := exists(path + ".decompressed")
+		if exists == false {
+			err := decompress(path, path+".decompressed")
+			if err != nil {
+				return nil, err
+			}
 		}
+		path = path + ".decompressed"
 	}
 
-	if size > 0 {
-		b := make([]byte, size)
-		_, err := file.Read(b)
-		if err != nil {
-			return nil, err
-		}
-		return b, nil
-	} else {
-		b, err := ioutil.ReadAll(file)
-		if err != nil {
-			return nil, err
-		}
-		return b, nil
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
 	}
+	return file, nil
 }
