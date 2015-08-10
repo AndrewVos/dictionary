@@ -15,7 +15,15 @@
 	  <input type="submit"></input>
         </form>
 	<div>
-          {{RESULT}}
+          {{.Result}}
+          {{ if .Random }}
+            <p>Here are some random words to try</p>
+            {{range .Random}}
+              <div>
+                <a href="?word={{.}}">{{.}}</a>
+              </div>
+            {{end}}
+          {{end}}
         </div>
       </div>
   </body>

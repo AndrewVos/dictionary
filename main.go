@@ -8,9 +8,12 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
+	"text/template"
+	"time"
 )
 
 type Word struct {
@@ -22,6 +25,23 @@ type Word struct {
 type Dictionary struct {
 	dictionaryPath string
 	words          []Word
+}
+
+func (d *Dictionary) FindRandomWords() ([]string, error) {
+	reader, err := reader(d.dictionaryPath)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	rand.Seed(time.Now().UTC().UnixNano())
+
+	var result []string
+	for i := 0; i < 10; i++ {
+		r := d.words[rand.Intn(len(d.words))]
+		result = append(result, r.Word)
+	}
+	return result, nil
 }
 
 func (d *Dictionary) FindWord(word string) (string, error) {
@@ -97,30 +117,38 @@ func main() {
 		log.Fatal(err)
 	}
 	if os.Args[1] == "--serve" {
+		t, err := template.ParseFiles("index.html")
+		if err != nil {
+			panic(err)
+		}
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			content, err := ioutil.ReadFile("index.html")
-			if err != nil {
-				w.WriteHeader(500)
-				return
-			}
-			template := string(content)
+			var result string
+			var random []string
 
 			word := r.URL.Query().Get("word")
-			result, err := dictionary.FindWord(word)
-			if err != nil {
-				w.WriteHeader(500)
-				return
+
+			if word != "" {
+				result, err = dictionary.FindWord(word)
+				if err != nil {
+					w.WriteHeader(500)
+					return
+				}
 			}
 
 			if result == "" {
-				template = strings.Replace(template, "{RESULT}", "Not Found", -1)
-
-			} else {
-				result = strings.Replace(result, "\n", "<br>", -1)
-				template = strings.Replace(template, "{RESULT}", result, -1)
+				result = "Not Found"
+				random, err = dictionary.FindRandomWords()
+				if err != nil {
+					w.WriteHeader(500)
+					return
+				}
 			}
+			result = strings.Replace(result, "\n", "<br>", -1)
 
-			w.Write([]byte(template))
+			t.Execute(w, map[string]interface{}{
+				"Result": result,
+				"Random": random,
+			})
 		})
 
 		port := "8080"
@@ -128,7 +156,7 @@ func main() {
 			port = p
 		}
 
-		err := http.ListenAndServe(":"+port, nil)
+		err = http.ListenAndServe(":"+port, nil)
 		if err != nil {
 			log.Fatal(err)
 		}
