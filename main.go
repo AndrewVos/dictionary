@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -25,6 +26,7 @@ type Word struct {
 type Dictionary struct {
 	dictionaryPath string
 	words          []Word
+	wordMap        map[string]bool
 }
 
 func (d *Dictionary) FindRandomWords() ([]string, error) {
@@ -65,6 +67,18 @@ func (d *Dictionary) FindWord(word string) (string, error) {
 		}
 	}
 	return strings.Join(result, "\n"), nil
+}
+
+func (d *Dictionary) HasWord(word string) bool {
+	if d.wordMap == nil {
+		d.wordMap = map[string]bool{}
+		for _, indexedWord := range d.words {
+			d.wordMap[strings.ToLower(indexedWord.Word)] = true
+		}
+	}
+
+	word = strings.ToLower(word)
+	return d.wordMap[word]
 }
 
 func NewDictionary(indexPath string, dictionaryPath string) (*Dictionary, error) {
@@ -132,6 +146,16 @@ func main() {
 				if err != nil {
 					w.WriteHeader(500)
 					return
+				}
+			}
+
+			wordMatcher := regexp.MustCompile("\\w+")
+			for _, match := range wordMatcher.FindAllString(result, -1) {
+				if dictionary.HasWord(strings.ToLower(match)) {
+					replacer := regexp.MustCompile("\\s" + match + "[;,.\\s]")
+					link := " <a href='?word=" + match + "'>" + match + "</a> "
+
+					result = replacer.ReplaceAllString(result, link)
 				}
 			}
 
